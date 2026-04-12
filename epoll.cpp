@@ -8,58 +8,9 @@
 #include <iostream>
 #include <string>
 
+#include "HttpServer.h"
 #include "ThreadPool.h"  //使用线程池处理请求
 #define MAX_EVENTS 1024
-
-struct HttpRequest {
-  std::string method;
-  std::string path;
-  std::string version;
-};
-
-struct HttpResponse {
-  std::string version;
-  int status_code;
-  std::string status_message;
-  std::string mime_type;
-  std::string body;
-};
-
-std::string get_status_message(int status_code) {
-  switch (status_code) {
-    case 200:
-      return "OK";
-    case 400:
-      return "Bad Request";
-    case 404:
-      return "Not Found";
-    case 500:
-      return "Internal Server Error";
-    default:
-      return "Unknown Status";
-  }
-}
-
-std::string build_http_response(const HttpResponse& response) {
-  // 1. 彻底清除version里的所有换行符，双重保险
-  std::string clean_version = response.version;
-  clean_version.erase(
-      std::remove(clean_version.begin(), clean_version.end(), '\r'),
-      clean_version.end());
-  clean_version.erase(
-      std::remove(clean_version.begin(), clean_version.end(), '\n'),
-      clean_version.end());
-
-  std::string http_response;
-  http_response += clean_version + " " + std::to_string(response.status_code) +
-                   " " + response.status_message + "\r\n";
-  http_response += "Content-Type: " + response.mime_type + "\r\n";
-  http_response +=
-      "Content-Length: " + std::to_string(response.body.size()) + "\r\n";
-  http_response += "\r\n";  // 空行分隔头部和正文
-  http_response += response.body;
-  return http_response;
-}
 
 int main() {
   // 创建线程池，指定线程数量为4
