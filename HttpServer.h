@@ -30,5 +30,10 @@ HttpRequest parse_http_request(const std::string& request);
 
 // 处理客户端HTTP请求（入口函数）
 void handle_http_request(int client_fd);
-
+// 新增：处理静态资源（核心入口）
+void handle_http_request(int client_fd);
+// 新增：获取文件类型
+std::string get_mime_type(const std::string& path);
+// 新增：读取本地文件
+std::string read_file(const std::string& path);
 #endif
