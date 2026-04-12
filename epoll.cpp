@@ -5,7 +5,14 @@
 
 #include <cstring>
 #include <iostream>
+#include <string>
 #define MAX_EVENTS 1024
+
+struct HttpRequest {
+  std::string method;
+  std::string path;
+  std::string version;
+};
 
 int main() {
   int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -33,23 +40,42 @@ int main() {
         ev.data.fd = conn_fd;
         epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &ev);
       } else {
-        // 处理现有连接的数据
         char buffer[1024] = {0};
         int len = recv(curr_fd, buffer, sizeof(buffer), 0);
         if (len <= 0) {
           // 连接关闭或发生错误
-          std::cout << "连接已关闭，文件描述符: " << curr_fd << std::endl;
+          std::cout << "客户端断开，文件描述符: " << curr_fd << std::endl;
           epoll_ctl(epoll_fd, EPOLL_CTL_DEL, curr_fd, nullptr);
           close(curr_fd);
           continue;
         } else {
+          // 处理现有连接的数据
           // 输出接收到的数据
           std::cout << "接收到数据: " << buffer
                     << " 来自文件描述符: " << curr_fd << std::endl;
           const char* response = "服务端已接收";
-          send(curr_fd, response, strlen(response),
-               0);                        // 回显确认消息
-          send(curr_fd, buffer, len, 0);  // 回显数据
+          send(curr_fd, response, strlen(response), 0);  // 回显确认消息
+          send(curr_fd, buffer, len, 0);                 // 回显数据
+          // 解析 HTTP 请求（简单示例，未处理完整 HTTP 协议）
+          std::string request(buffer);
+          size_t method_end = request.find('\n');
+          std::string method_line = request.substr(0, method_end);
+          std::cout << "接收到 HTTP 请求: " << method_line << std::endl;
+          HttpRequest http_request;
+          // 查找空格分隔符，提取 HTTP 方法、路径和版本
+          size_t space1 = method_line.find(' ');
+          http_request.method = method_line.substr(0, space1);
+          size_t space2 = method_line.find(' ', space1 + 1);
+          http_request.path =
+              method_line.substr(space1 + 1, space2 - space1 - 1);
+          http_request.version = method_line.substr(space2 + 1);
+          // 输出解析结果
+          std::cout << "HTTP 方法: " << http_request.method << std::endl;
+          std::cout << "请求路径: " << http_request.path << std::endl;
+          std::cout << "HTTP 版本: " << http_request.version << std::endl;
+          std::string response_body =
+              http_request.version + " 200 OK\r\n\r\nHello HTTP Server";
+          send(curr_fd, response_body.c_str(), response_body.size(), 0);
         }
       }
     }
