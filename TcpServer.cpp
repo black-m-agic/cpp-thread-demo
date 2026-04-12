@@ -1,6 +1,7 @@
 #include "TcpServer.h"
 
 #include <bits/socket.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 
 #include <iostream>
@@ -51,7 +52,7 @@ int init_epoll(int listen_fd) {
   }
 
   struct epoll_event ev{};
-  ev.events = EPOLLIN;
+  ev.events = EPOLLIN | EPOLLET;  // 边缘触发
   ev.data.fd = listen_fd;
   epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev);
 

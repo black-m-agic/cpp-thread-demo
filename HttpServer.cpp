@@ -82,8 +82,18 @@ HttpRequest parse_http_request(const std::string& request) {
 // 4. 核心：处理HTTP请求 + 静态资源
 void handle_http_request(int client_fd) {
   char buffer[1024] = {0};
-  int len = recv(client_fd, buffer, sizeof(buffer), 0);
-  if (len <= 0) return;
+  // ET模式下需要循环读取，直到请求头结束（\r\n\r\n）
+  int total_len = 0;
+  while (true) {
+    int len =
+        recv(client_fd, buffer + total_len, sizeof(buffer) - total_len, 0);
+    if (len <= 0) return;
+    total_len += len;
+    if (std::string(buffer, total_len).find("\r\n\r\n") != std::string::npos)
+      break;  // 请求头结束
+  }
+  // int len = recv(client_fd, buffer, sizeof(buffer), 0);
+  if (total_len <= 0) return;
   HttpRequest req = parse_http_request(buffer);
 
   HttpResponse res;

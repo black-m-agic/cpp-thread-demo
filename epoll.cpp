@@ -1,3 +1,4 @@
+#include <fcntl.h>  // 非阻塞函数必需
 #include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -43,11 +44,17 @@ int main() {
       int curr_fd = events[i].data.fd;
       if (curr_fd == listen_fd) {
         int conn_fd = accept(listen_fd, nullptr, nullptr);
+        // 设置非阻塞
+        //
+
         if (conn_fd < 0) continue;
         std::cout << "新连接已接受，文件描述符: " << conn_fd << std::endl;
 
+        int flags = fcntl(conn_fd, F_GETFL, 0);
+        fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);
+
         struct epoll_event ev{};
-        ev.events = EPOLLIN;
+        ev.events = EPOLLIN | EPOLLET;  // 边缘触发
         ev.data.fd = conn_fd;
         epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &ev);
       } else {
