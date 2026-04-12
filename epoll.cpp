@@ -7,6 +7,8 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+
+#include "ThreadPool.h"  //使用线程池处理请求
 #define MAX_EVENTS 1024
 
 struct HttpRequest {
@@ -60,6 +62,8 @@ std::string build_http_response(const HttpResponse& response) {
 }
 
 int main() {
+  // 创建线程池，指定线程数量为4
+  ThreadPool pool(4);
   // 1. 创建监听socket
   int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (listen_fd < 0) {
@@ -124,105 +128,113 @@ int main() {
       }
       // 处理现有连接的数据
       else {
-        char buffer[1024] = {0};
-        int len = recv(curr_fd, buffer, sizeof(buffer) - 1, 0);
-        // 连接关闭或发生错误
-        if (len <= 0) {
-          std::cout << "客户端断开，文件描述符: " << curr_fd << std::endl;
-          epoll_ctl(epoll_fd, EPOLL_CTL_DEL, curr_fd, nullptr);
-          close(curr_fd);
-          continue;
-        } else {
-          // 处理现有连接的数据
-          // 输出接收到的数据
-          std::cout << "接收到数据: " << buffer
-                    << " 来自文件描述符: " << curr_fd << std::endl;
-          // const char* response = "服务端已接收";
-          // HTTP 协议有铁律：服务端返回给浏览器的第一行数据，必须是 HTTP
-          // 响应行（HTTP/1.1 200 OK） send(curr_fd, response, strlen(response),
-          // 0);  // 回显确认消息 send(curr_fd, buffer, len, 0); // 回显数据
+        // 把客户端fd交给线程池处理
+        int conn_fd = curr_fd;
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, conn_fd, nullptr);
 
-          // 解析 HTTP 请求（简单示例，未处理完整 HTTP 协议）
-          std::string request(buffer);
-          size_t method_end = request.find('\r\n');
-          // 兼容异常情况，用\n兜底
-          if (method_end == std::string::npos) {
-            method_end = request.find('\n');
-          }
-
-          std::string method_line = request.substr(0, method_end);
-          // 2. 彻底清理请求行里的\r\n，确保解析干净
-          method_line.erase(
-              std::remove(method_line.begin(), method_line.end(), '\r'),
-              method_line.end());
-          method_line.erase(
-              std::remove(method_line.begin(), method_line.end(), '\n'),
-              method_line.end());
-          std::cout << "接收到 HTTP 请求: " << method_line << std::endl;
-          // 3. 拆分method、path、version
-          HttpRequest http_request;
-          size_t space1 = method_line.find(' ');
-          if (space1 == std::string::npos) {
-            std::cerr << "无效的 HTTP 请求行" << std::endl;
-            close(curr_fd);
-            continue;
-          }
-
-          http_request.method = method_line.substr(0, space1);
-          size_t space2 = method_line.find(' ', space1 + 1);
-          if (space2 == std::string::npos) {
-            std::cerr << "无效的 HTTP 请求行" << std::endl;
-            close(curr_fd);
-            continue;
-          }
-
-          http_request.path =
-              method_line.substr(space1 + 1, space2 - space1 - 1);
-          http_request.version = method_line.substr(space2 + 1);
-
-          // 输出解析结果
-          std::cout << "HTTP 方法: " << http_request.method << std::endl;
-          std::cout << "请求路径: " << http_request.path << std::endl;
-          std::cout << "HTTP 版本: " << http_request.version << std::endl;
-          // std::string response_body =
-          //     http_request.version + " 200 OK\r\n\r\nHello HTTP Server";
-          // send(curr_fd, response_body.c_str(), response_body.size(), 0);
-
-          // 构建 HTTP 响应
-          HttpResponse http_response;
-          http_response.version = http_request.version;
-          http_response.mime_type = "text/html; charset=utf-8";
-          // 根据请求路径设置响应内容
-          if (http_request.path == "/") {
-            http_response.status_code = 200;
-            http_response.status_message =
-                get_status_message(http_response.status_code);
-            http_response.body =
-                "<html><head><meta "
-                "charset=\"UTF-8\"></head><body><h1>欢迎访问首页！</h1></"
-                "body></html>";
-          } else if (http_request.path == "/hello") {
-            http_response.status_code = 200;
-            http_response.status_message =
-                get_status_message(http_response.status_code);
-            http_response.body =
-                "<html><head><meta charset=\"UTF-8\"></head><body><h1>Hello, "
-                "HTTP Server!</h1></body></html>";
+        pool.submit([conn_fd]() {
+          char buffer[1024] = {0};
+          int len = recv(conn_fd, buffer, sizeof(buffer) - 1, 0);
+          // 连接关闭或发生错误
+          if (len <= 0) {
+            std::cout << "客户端断开，文件描述符: " << conn_fd << std::endl;
+            // epoll_ctl(epoll_fd, EPOLL_CTL_DEL, conn_fd, nullptr);
+            close(conn_fd);
+            return;
           } else {
-            http_response.status_code = 404;
-            http_response.status_message =
-                get_status_message(http_response.status_code);
-            http_response.body =
-                "<html><head><meta "
-                "charset=\"UTF-8\"></head><body><h1>页面未找到</h1></body></"
-                "html>";
+            // 处理现有连接的数据
+            // 输出接收到的数据
+
+            std::cout << "接收到数据: " << buffer
+                      << " 来自文件描述符: " << conn_fd << std::endl;
+            // const char* response = "服务端已接收";
+            // HTTP 协议有铁律：服务端返回给浏览器的第一行数据，必须是 HTTP
+            // 响应行（HTTP/1.1 200 OK） send(conn_fd, response,
+            // strlen(response), 0);  // 回显确认消息 send(conn_fd, buffer, len,
+            // 0); // 回显数据
+
+            // 解析 HTTP 请求（简单示例，未处理完整 HTTP 协议）
+            std::string request(buffer);
+            size_t method_end = request.find("\r\n");
+            // 兼容异常情况，用\n兜底
+            if (method_end == std::string::npos) {
+              method_end = request.find('\n');
+            }
+
+            std::string method_line = request.substr(0, method_end);
+            // 2. 彻底清理请求行里的\r\n，确保解析干净
+            method_line.erase(
+                std::remove(method_line.begin(), method_line.end(), '\r'),
+                method_line.end());
+            method_line.erase(
+                std::remove(method_line.begin(), method_line.end(), '\n'),
+                method_line.end());
+            std::cout << "接收到 HTTP 请求: " << method_line << std::endl;
+            // 3. 拆分method、path、version
+            HttpRequest http_request;
+            size_t space1 = method_line.find(' ');
+            if (space1 == std::string::npos) {
+              std::cerr << "无效的 HTTP 请求行" << std::endl;
+              close(conn_fd);
+              return;
+            }
+
+            http_request.method = method_line.substr(0, space1);
+            size_t space2 = method_line.find(' ', space1 + 1);
+            if (space2 == std::string::npos) {
+              std::cerr << "无效的 HTTP 请求行" << std::endl;
+              close(conn_fd);
+              return;
+            }
+
+            http_request.path =
+                method_line.substr(space1 + 1, space2 - space1 - 1);
+            http_request.version = method_line.substr(space2 + 1);
+
+            // 输出解析结果
+            std::cout << "HTTP 方法: " << http_request.method << std::endl;
+            std::cout << "请求路径: " << http_request.path << std::endl;
+            std::cout << "HTTP 版本: " << http_request.version << std::endl;
+            // std::string response_body =
+            //     http_request.version + " 200 OK\r\n\r\nHello HTTP Server";
+            // send(curr_fd, response_body.c_str(), response_body.size(), 0);
+
+            // 构建 HTTP 响应
+            HttpResponse http_response;
+            http_response.version = http_request.version;
+            http_response.mime_type = "text/html; charset=utf-8";
+            // 根据请求路径设置响应内容
+            if (http_request.path == "/") {
+              http_response.status_code = 200;
+              http_response.status_message =
+                  get_status_message(http_response.status_code);
+              http_response.body =
+                  "<html><head><meta "
+                  "charset=\"UTF-8\"></head><body><h1>欢迎访问首页！</h1></"
+                  "body></html>";
+            } else if (http_request.path == "/hello") {
+              http_response.status_code = 200;
+              http_response.status_message =
+                  get_status_message(http_response.status_code);
+              http_response.body =
+                  "<html><head><meta charset=\"UTF-8\"></head><body><h1>Hello, "
+                  "HTTP Server!</h1></body></html>";
+            } else {
+              http_response.status_code = 404;
+              http_response.status_message =
+                  get_status_message(http_response.status_code);
+              http_response.body =
+                  "<html><head><meta "
+                  "charset=\"UTF-8\"></head><body><h1>页面未找到</h1></body></"
+                  "html>";
+            }
+            // 构建完整 HTTP 响应字符串并发送
+            std::string response_str = build_http_response(http_response);
+            send(conn_fd, response_str.c_str(), response_str.size(), 0);
+            // 处理完请求后关闭连接
+            close(conn_fd);
           }
-          // 构建完整 HTTP 响应字符串并发送
-          std::string response_str = build_http_response(http_response);
-          send(curr_fd, response_str.c_str(), response_str.size(), 0);
-          // 处理完请求后关闭连接
-          close(curr_fd);
-        }
+        });
       }
     }
   }
