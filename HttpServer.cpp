@@ -54,15 +54,25 @@ std::string get_mime_type(const std::string& path) {
   if (path.find(".gif") != std::string::npos) return "image/gif";
   return "text/plain;charset=utf-8";
 }
-
-// 2. 读取本地文件内容
+// 全局缓存：只加载一次 index.html 到内存
+std::string g_index_cache;
+// 2. 读取本地文件内容（带缓存优化）
 std::string read_file(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
-  if (!file) return "";
-  return std::string((std::istreambuf_iterator<char>(file)),
-                     std::istreambuf_iterator<char>());
+  // 如果是访问 index.html，直接用内存缓存，不读磁盘
+  if (path == "index.html" || path == "./index.html" || path == "/index.html") {
+    // 缓存为空才第一次读取磁盘
+    if (g_index_cache.empty()) {
+      std::ifstream file(path, std::ios::binary);
+      if (file) {
+        g_index_cache.assign(std::istreambuf_iterator<char>(file),
+                             std::istreambuf_iterator<char>());
+      }
+    }
+    // 直接返回内存里的内容！！！
+    return g_index_cache;
+  }
+  return "";
 }
-
 // 3. 解析HTTP请求（完整版）
 HttpRequest parse_http_request(const std::string& request) {
   HttpRequest req;

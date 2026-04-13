@@ -15,7 +15,7 @@
 #define MAX_EVENTS 2048
 
 int main() {
-  const int THREAD_NUM = 8;  // 线程数配置
+  const int THREAD_NUM = 16;  // 线程数配置
 
   // 1. 调用封装好的初始化函数
   int listen_fd = init_listen_socket();
