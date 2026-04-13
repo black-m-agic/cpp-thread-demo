@@ -3,14 +3,12 @@
 
 #include <string>
 
-// HTTP请求结构体（和你原代码完全一致）
 struct HttpRequest {
   std::string method;
   std::string path;
   std::string version;
 };
 
-// HTTP响应结构体（和你原代码完全一致）
 struct HttpResponse {
   std::string version;
   int status_code;
@@ -19,21 +17,11 @@ struct HttpResponse {
   std::string body;
 };
 
-// 获取状态码描述信息
 std::string get_status_message(int status_code);
-
-// 构建HTTP响应报文
 std::string build_http_response(const HttpResponse& response);
-
-// 解析HTTP请求
 HttpRequest parse_http_request(const std::string& request);
-
-// 处理客户端HTTP请求（入口函数）
-void handle_http_request(int client_fd);
-// 新增：处理静态资源（核心入口）
-void handle_http_request(int client_fd);
-// 新增：获取文件类型
+void handle_http_request(int client_fd);  // 只保留1次声明
 std::string get_mime_type(const std::string& path);
-// 新增：读取本地文件
 std::string read_file(const std::string& path);
+
 #endif

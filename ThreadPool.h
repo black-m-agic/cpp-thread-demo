@@ -21,9 +21,24 @@ class ThreadPool {
   ThreadPool& operator=(ThreadPool&&) = delete;
   // 析构函数，停止线程池并清理资源
   ~ThreadPool();
-  // 提交任务到线程池
+
+  // ==============================================
+  // ✅ 核心修复：类内部定义模板函数，去掉 ThreadPool::
+  // ==============================================
   template <typename Func, typename... Args>
-  void submit(Func&& func, Args&&... args);
+  void submit(Func&& func, Args&&... args) {
+    using TaskType = std::function<void()>;
+    TaskType task =
+        std::bind(std::forward<Func>(func), std::forward<Args>(args)...);
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      if (!m_running) {
+        throw std::runtime_error("ThreadPool has been stopped");
+      }
+      m_tasks.emplace(std::move(task));
+    }
+    m_cv.notify_one();
+  }
 
  private:
   // 工作线程函数，循环等待并执行任务
@@ -36,22 +51,4 @@ class ThreadPool {
   std::condition_variable m_cv;               // 任务到来时通知工作线程的
   std::atomic<bool> m_running;                // 线程池运行状态标志
 };
-
-// 模板函数实现必须放在头文件中
-template <typename Func, typename... Args>
-void ThreadPool::submit(Func&& func, Args&&... args) {
-  using TaskType = std::function<void()>;
-  TaskType task =
-      std::bind(std::forward<Func>(func), std::forward<Args>(args)...);
-  {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    // 提交任务前检查线程池是否已停止，避免提交后任务无法执行
-    if (!m_running) {
-      throw std::runtime_error("ThreadPool has been stopped");
-    }
-    m_tasks.emplace(std::move(task));
-  }
-  m_cv.notify_one();  // 通知一个工作线程有新任务
-}
-
 #endif

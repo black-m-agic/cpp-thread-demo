@@ -4,10 +4,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <algorithm>  // 用于 std::remove
+#include <algorithm>
 #include <fstream>
+#include <iostream>
+#include <map>
+#include <mutex>  // 新增
 #include <string>
-// 获取HTTP状态码描述
+
+extern std::map<int, std::string> g_fd_to_req;
+extern std::mutex g_map_mutex;  // 引入锁
+
 std::string get_status_message(int status_code) {
   switch (status_code) {
     case 200:
@@ -23,7 +29,6 @@ std::string get_status_message(int status_code) {
   }
 }
 
-// 构建HTTP响应报文（你的原版代码）
 std::string build_http_response(const HttpResponse& response) {
   std::string clean_version = response.version;
   clean_version.erase(
@@ -39,12 +44,12 @@ std::string build_http_response(const HttpResponse& response) {
   http_response += "Content-Type: " + response.mime_type + "\r\n";
   http_response +=
       "Content-Length: " + std::to_string(response.body.size()) + "\r\n";
+  http_response += "Connection: keep-alive\r\n";
   http_response += "\r\n";
   http_response += response.body;
   return http_response;
 }
 
-// 1. 获取文件MIME类型（告诉浏览器怎么解析文件）
 std::string get_mime_type(const std::string& path) {
   if (path.find(".html") != std::string::npos) return "text/html";
   if (path.find(".css") != std::string::npos) return "text/css";
@@ -54,26 +59,39 @@ std::string get_mime_type(const std::string& path) {
   if (path.find(".gif") != std::string::npos) return "image/gif";
   return "text/plain;charset=utf-8";
 }
-// 全局缓存：只加载一次 index.html 到内存
+
 std::string g_index_cache;
-// 2. 读取本地文件内容（带缓存优化）
 std::string read_file(const std::string& path) {
-  // 如果是访问 index.html，直接用内存缓存，不读磁盘
-  if (path == "index.html" || path == "./index.html" || path == "/index.html") {
-    // 缓存为空才第一次读取磁盘
+  if (path == "./index.html" || path == "/index.html" || path == "index.html") {
     if (g_index_cache.empty()) {
-      std::ifstream file(path, std::ios::binary);
-      if (file) {
-        g_index_cache.assign(std::istreambuf_iterator<char>(file),
-                             std::istreambuf_iterator<char>());
+      FILE* fp = fopen(path.c_str(), "rb");
+      if (fp) {
+        fseek(fp, 0, SEEK_END);
+        int size = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        g_index_cache.resize(size);
+        size_t ret = fread(&g_index_cache[0], 1, size, fp);
+        (void)ret;
+        fclose(fp);
       }
     }
-    // 直接返回内存里的内容！！！
     return g_index_cache;
   }
-  return "";
+
+  std::string content;
+  FILE* fp = fopen(path.c_str(), "rb");
+  if (fp) {
+    fseek(fp, 0, SEEK_END);
+    int size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    content.resize(size);
+    size_t ret = fread(&content[0], 1, size, fp);
+    (void)ret;
+    fclose(fp);
+  }
+  return content;
 }
-// 3. 解析HTTP请求（完整版）
+
 HttpRequest parse_http_request(const std::string& request) {
   HttpRequest req;
   size_t method_end = request.find(" ");
@@ -84,32 +102,25 @@ HttpRequest parse_http_request(const std::string& request) {
   req.version =
       request.substr(path_end + 1, request.find("\r\n") - path_end - 1);
 
-  // 默认访问 / 时打开 index.html
   if (req.path == "/") req.path = "/index.html";
   return req;
 }
 
-// 4. 核心：处理HTTP请求 + 静态资源
 void handle_http_request(int client_fd) {
-  char buffer[2048] = {0};
-  // ET模式下需要循环读取，直到请求头结束（\r\n\r\n）
-  int total_len = 0;
-  while (true) {
-    int len =
-        recv(client_fd, buffer + total_len, sizeof(buffer) - total_len, 0);
-    if (len <= 0) return;
-    total_len += len;
-    if (std::string(buffer, total_len).find("\r\n\r\n") != std::string::npos)
-      break;  // 请求头结束
+  std::string full_req;
+  // 加锁读/删数据（修复并发崩溃）
+  {
+    std::lock_guard<std::mutex> lock(g_map_mutex);
+    auto it = g_fd_to_req.find(client_fd);
+    if (it == g_fd_to_req.end()) return;
+    full_req = it->second;
+    g_fd_to_req.erase(it);
   }
-  // int len = recv(client_fd, buffer, sizeof(buffer), 0);
-  if (total_len <= 0) return;
-  HttpRequest req = parse_http_request(buffer);
 
+  HttpRequest req = parse_http_request(full_req);
   HttpResponse res;
   res.version = "HTTP/1.1";
 
-  // 读取本地文件
   std::string file_content = read_file("." + req.path);
   if (!file_content.empty()) {
     res.status_code = 200;
@@ -117,15 +128,15 @@ void handle_http_request(int client_fd) {
     res.mime_type = get_mime_type(req.path);
     res.body = file_content;
   } else {
-    // 文件不存在，返回404
     res.status_code = 404;
     res.status_message = get_status_message(404);
     res.mime_type = "text/html; charset=utf-8";
     res.body = "<h1>404 Not Found</h1>";
   }
 
-  // 发送响应
   std::string response = build_http_response(res);
-  send(client_fd, response.c_str(), response.size(), 0);
-  close(client_fd);
+  // 安全发送：忽略错误（长连接正常断开）
+  send(client_fd, response.c_str(), response.size(),
+       MSG_DONTWAIT | MSG_NOSIGNAL);
+  // send(client_fd, response.c_str(), response.size(), MSG_NOSIGNAL);
 }
