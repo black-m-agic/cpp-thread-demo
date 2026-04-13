@@ -7,7 +7,7 @@
 #include <iostream>
 
 // 配置
-#define MAX_EVENTS 1024
+#define MAX_EVENTS 2048
 #define SERVER_PORT 8080
 
 // 初始化监听Socket (创建+复用+绑定+监听)

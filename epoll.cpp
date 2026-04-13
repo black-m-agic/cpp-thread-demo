@@ -12,10 +12,10 @@
 #include "HttpServer.h"
 #include "TcpServer.h"
 #include "ThreadPool.h"  //使用线程池处理请求
-#define MAX_EVENTS 1024
+#define MAX_EVENTS 2048
 
 int main() {
-  const int THREAD_NUM = 4;  // 线程数配置
+  const int THREAD_NUM = 8;  // 线程数配置
 
   // 1. 调用封装好的初始化函数
   int listen_fd = init_listen_socket();
@@ -48,7 +48,7 @@ int main() {
         //
 
         if (conn_fd < 0) continue;
-        std::cout << "新连接已接受，文件描述符: " << conn_fd << std::endl;
+        // std::cout << "新连接已接受，文件描述符: " << conn_fd << std::endl;
 
         int flags = fcntl(conn_fd, F_GETFL, 0);
         fcntl(conn_fd, F_SETFL, flags | O_NONBLOCK);

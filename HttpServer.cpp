@@ -81,7 +81,7 @@ HttpRequest parse_http_request(const std::string& request) {
 
 // 4. 核心：处理HTTP请求 + 静态资源
 void handle_http_request(int client_fd) {
-  char buffer[1024] = {0};
+  char buffer[2048] = {0};
   // ET模式下需要循环读取，直到请求头结束（\r\n\r\n）
   int total_len = 0;
   while (true) {
