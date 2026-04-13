@@ -7,12 +7,9 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
-#include <map>
-#include <mutex>  // 新增
 #include <string>
 
-extern std::map<int, std::string> g_fd_to_req;
-extern std::mutex g_map_mutex;  // 引入锁
+// 🔥 彻底删除：全局map、全局锁、extern声明（无锁核心）
 
 std::string get_status_message(int status_code) {
   switch (status_code) {
@@ -44,8 +41,7 @@ std::string build_http_response(const HttpResponse& response) {
   http_response += "Content-Type: " + response.mime_type + "\r\n";
   http_response +=
       "Content-Length: " + std::to_string(response.body.size()) + "\r\n";
-  http_response += "Connection: keep-alive\r\n";
-  http_response += "\r\n";
+  http_response += "Connection: keep-alive\r\n\r\n";
   http_response += response.body;
   return http_response;
 }
@@ -70,8 +66,7 @@ std::string read_file(const std::string& path) {
         int size = ftell(fp);
         fseek(fp, 0, SEEK_SET);
         g_index_cache.resize(size);
-        size_t ret = fread(&g_index_cache[0], 1, size, fp);
-        (void)ret;
+        fread(&g_index_cache[0], 1, size, fp);
         fclose(fp);
       }
     }
@@ -85,8 +80,7 @@ std::string read_file(const std::string& path) {
     int size = ftell(fp);
     fseek(fp, 0, SEEK_SET);
     content.resize(size);
-    size_t ret = fread(&content[0], 1, size, fp);
-    (void)ret;
+    fread(&content[0], 1, size, fp);
     fclose(fp);
   }
   return content;
@@ -106,17 +100,8 @@ HttpRequest parse_http_request(const std::string& request) {
   return req;
 }
 
-void handle_http_request(int client_fd) {
-  std::string full_req;
-  // 加锁读/删数据（修复并发崩溃）
-  {
-    std::lock_guard<std::mutex> lock(g_map_mutex);
-    auto it = g_fd_to_req.find(client_fd);
-    if (it == g_fd_to_req.end()) return;
-    full_req = it->second;
-    g_fd_to_req.erase(it);
-  }
-
+// 🔥 无锁核心函数：直接使用传入的请求，无任何共享数据
+void handle_http_request(int client_fd, const std::string& full_req) {
   HttpRequest req = parse_http_request(full_req);
   HttpResponse res;
   res.version = "HTTP/1.1";
@@ -135,8 +120,5 @@ void handle_http_request(int client_fd) {
   }
 
   std::string response = build_http_response(res);
-  // 安全发送：忽略错误（长连接正常断开）
-  send(client_fd, response.c_str(), response.size(),
-       MSG_DONTWAIT | MSG_NOSIGNAL);
-  // send(client_fd, response.c_str(), response.size(), MSG_NOSIGNAL);
+  send(client_fd, response.c_str(), response.size(), MSG_NOSIGNAL);
 }

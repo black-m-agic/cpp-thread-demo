@@ -34,7 +34,7 @@ int init_listen_socket() {
   }
 
   // 5. 监听
-  if (listen(listen_fd, 128) < 0) {
+  if (listen(listen_fd, 1024) < 0) {  // 从 128 改成 1024
     std::cerr << "监听端口失败" << std::endl;
     close(listen_fd);
     return -1;
